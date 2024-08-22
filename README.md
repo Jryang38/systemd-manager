@@ -9,3 +9,8 @@ libsystemd
 ```
 $: sudo apt install libsystemd-dev
 ```
+
+II. compile
+cmake .
+make
+

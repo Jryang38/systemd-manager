@@ -1,4 +1,5 @@
 #include "systemd_manager.h"
+#include <iostream>
 
 SystemdManager::SystemdManager()
 {
@@ -10,7 +11,7 @@ SystemdManager::~SystemdManager()
     sd_bus_unref(m_bus);
 }
 
-int SystemdManager::startService(std::string unit_name, bool stop = false)
+int SystemdManager::toggleService(std::string unit_name, UnitActionType actionType)
 {
     int ret = -1;
     sd_bus_error error = SD_BUS_ERROR_NULL;
@@ -26,31 +27,32 @@ int SystemdManager::startService(std::string unit_name, bool stop = false)
                              SYSTEMD_SERVICE_NAME,                              /* service to contact */
                              SYSTEMD_OBJECT_PATH_NAME,                          /* object path */
                              SYSTEMD_MANAGER_INTERFACE_NAME,                    /* interface name */
-                             stop ? SYSTEMD_STOP_METHOD : SYSTEMD_START_METHOD, /* method name */
+                             unit_actions[actionType].method,                   /* method name */
                              &error,                                            /* object to return error in */
                              &reply,
-                             "ss",
+                             unit_actions[actionType].arg,
                              unit_name.c_str(),
-                             "replace");
+                             unit_actions[actionType].mode);
 
-    /* input signature */
-    /* first argument */
-    /* second argument */
     if (ret < 0)
     {
         std::cerr << "Failed to issue method call: " << error.message << std::endl;
         goto finish;
     }
 
-    /* Parse the response message */
-    ret = sd_bus_message_read(reply, "o", &object);
-    if (ret < 0)
+    if ((actionType != SYSTEMD_FREEZE_UNIT) && (actionType != SYSTEMD_THAW_UNIT))
     {
-        std::cerr << "Failed to parse response message: " << std::strerror(-ret) << std::endl;
-        goto finish;
+        /* Parse the response message */
+        ret = sd_bus_message_read(reply, "o", &object);
+        if (ret < 0)
+        {
+            std::cerr << "Failed to parse response message: " << std::strerror(-ret) << std::endl;
+            goto finish;
+        }
+        std::cout << "Object " << object << std::endl;
     }
 
-    std::cout << "Object " << object << std::endl;
+    std::cout << unit_actions[actionType].verb << unit_name.c_str() << " succeed!" << std::endl;
 
 finish:
     sd_bus_error_free(&error);
@@ -84,9 +86,6 @@ bool SystemdManager::isActive(std::string unit_name)
                              unit_name.c_str()
                              );
 
-    /* input signature */
-    /* first argument */
-    /* second argument */
     if (ret < 0) {
         std::cerr << "Failed to issue method call: " << error.message << std::endl;
         goto finish;
@@ -120,6 +119,10 @@ bool SystemdManager::isActive(std::string unit_name)
         state = true;
     }
 
+    if (state)
+        std::cout<< unit_name.c_str() << "is alive!" << std::endl;
+    else
+	    std::cout<< unit_name.c_str() << "is not alive!" << std::endl;
 finish:
     sd_bus_error_free(&error);
     sd_bus_message_unref(reply);
@@ -144,7 +147,7 @@ int SystemdManager::reboot()
                              SYSTEMD_SERVICE_NAME,                              /* service to contact */
                              SYSTEMD_OBJECT_PATH_NAME,                          /* object path */
                              SYSTEMD_MANAGER_INTERFACE_NAME,                    /* interface name */
-                             SYSTEMD_REBOOT_METHOD, /* method name */
+                             SYSTEMD_REBOOT_METHOD,                             /* method name */
                              &error,                                            /* object to return error in */
                              nullptr, nullptr);
 
@@ -161,6 +164,27 @@ finish:
 
 int main(int argc, char *argv[])
 {
-    //SystemdManager s;
-    //s.startService("foo.service");
+    SystemdManager s;
+
+    if (argc <= 1) {
+        printf("Usage: systemd-manager <service name>\n");
+        return 1;
+    }
+
+    if ( s.isActive(argv[1]) )
+    {
+        s.toggleService(argv[1], SYSTEMD_STOP_UNIT);
+    }
+    else
+    {
+        s.toggleService(argv[1], SYSTEMD_START_UNIT);
+    }
+
+    s.toggleService(argv[1], SYSTEMD_RESTART_UNIT);
+
+    s.toggleService(argv[1], SYSTEMD_FREEZE_UNIT);
+
+    s.toggleService(argv[1], SYSTEMD_THAW_UNIT);
+
+	return 0;
 }
