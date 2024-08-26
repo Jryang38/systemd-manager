@@ -15,7 +15,7 @@
 #define SYSTEMD_MANAGER_INTERFACE_NAME    "org.freedesktop.systemd1.Manager"
 
 #define SYSTEMD_REBOOT_METHOD             "Reboot"
-
+#define SYSTEMD_DAEMON_RELOAD_METHOD      "Reload"
 #define SYSTEMD_LOAD_UNIT_METHOD          "LoadUnit"
 
 typedef enum {
@@ -27,10 +27,10 @@ typedef enum {
 } UnitActionType;
 
 static const struct {
-    const char *verb;      /* systemctl verb */
-    const char *method;    /* Name of the specific D-Bus method */
-    const char *arg;    /* Name of the specific D-Bus method */
-    const char *mode;    /* Name of the specific D-Bus method */
+    const char *verb;          /* systemctl verb */
+    const char *method;        /* Name of the specific D-Bus method */
+    const char *msgFormat;     /* input message fomrat */
+    const char *mode;          /* action mode */
 } unit_actions[] = {
     { "start",                 "StartUnit",              "ss",                 "replace"},
     { "stop",                  "StopUnit",               "ss",                 "replace"},
@@ -46,6 +46,7 @@ public:
     ~SystemdManager();
     int toggleService(std::string unit_name, UnitActionType actionType);
     bool isActive(std::string unit_name);
+    int daemon_reload();
     int reboot();
 
 private:

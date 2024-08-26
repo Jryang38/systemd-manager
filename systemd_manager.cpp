@@ -1,6 +1,10 @@
 #include "systemd_manager.h"
 #include <iostream>
 
+
+/*  timeout for the reload. */
+#define DAEMON_RELOAD_TIMEOUT_SEC (180 * 1000000ULL)
+
 SystemdManager::SystemdManager()
 {
     sd_bus_open_system(&m_bus);
@@ -29,10 +33,10 @@ int SystemdManager::toggleService(std::string unit_name, UnitActionType actionTy
                              SYSTEMD_MANAGER_INTERFACE_NAME,                    /* interface name */
                              unit_actions[actionType].method,                   /* method name */
                              &error,                                            /* object to return error in */
-                             &reply,
-                             unit_actions[actionType].arg,
-                             unit_name.c_str(),
-                             unit_actions[actionType].mode);
+                             &reply,                                            /* response message */
+                             unit_actions[actionType].msgFormat,                /* input message format */
+                             unit_name.c_str(),                                 /* target unit */
+                             unit_actions[actionType].mode);                    /* action mode */
 
     if (ret < 0)
     {
@@ -76,14 +80,14 @@ bool SystemdManager::isActive(std::string unit_name)
     }
 
     ret = sd_bus_call_method(m_bus,
-                             SYSTEMD_SERVICE_NAME, /* service to contact */
-                             SYSTEMD_OBJECT_PATH_NAME, /* object path */
-                             SYSTEMD_MANAGER_INTERFACE_NAME, /* interface name */
-                             SYSTEMD_LOAD_UNIT_METHOD, /* method name */
-                             &error,/* object to return error in */
-                             &reply,
-                             "s",
-                             unit_name.c_str()
+                             SYSTEMD_SERVICE_NAME,                               /* service to contact */
+                             SYSTEMD_OBJECT_PATH_NAME,                           /* object path */
+                             SYSTEMD_MANAGER_INTERFACE_NAME,                     /* interface name */
+                             SYSTEMD_LOAD_UNIT_METHOD,                           /* method name */
+                             &error,                                             /* object to return error in */
+                             &reply,                                             /* response message */
+                             "s",                                                /* input message format */
+                             unit_name.c_str()                                   /* target unit */
                              );
 
     if (ret < 0) {
@@ -101,12 +105,12 @@ bool SystemdManager::isActive(std::string unit_name)
     std::cout << "Unit path :" << unit_path << std::endl;
 
     ret = sd_bus_get_property_string(m_bus,
-                             SYSTEMD_SERVICE_NAME, /* service to contact */
-                             unit_path, /* object path */
-                             SYSTEMD_UNIT_INTERFACE_NAME, /* interface name */
-                             "ActiveState",
-                             &error,/* object to return error in */
-                             &active_state
+                                     SYSTEMD_SERVICE_NAME,                       /* service to contact */
+                                     unit_path,                                  /* object path */
+                                     SYSTEMD_UNIT_INTERFACE_NAME,                /* interface name */
+                                     "ActiveState",                              /* method name */
+                                     &error,                                     /* object to return error in */
+                                     &active_state                               /* activate state */ 
                              );
 
     if (ret < 0) {
@@ -149,16 +153,60 @@ int SystemdManager::reboot()
                              SYSTEMD_MANAGER_INTERFACE_NAME,                    /* interface name */
                              SYSTEMD_REBOOT_METHOD,                             /* method name */
                              &error,                                            /* object to return error in */
-                             nullptr, nullptr);
+                             nullptr,                                           /* response */
+                             nullptr                                            /* target unit */
+                            );
 
     if (ret < 0)
     {
         std::cerr << "Failed to issue method call: " << error.message << std::endl;
         goto finish;
     }
+    std::cout << "Reboot System..." << std::endl;
 
 finish:
     sd_bus_error_free(&error);
+
+    return ret;
+}
+
+int SystemdManager::daemon_reload()
+{
+    int ret = -1;
+    sd_bus_message *m = NULL;
+    sd_bus_error error = SD_BUS_ERROR_NULL;
+    sd_bus *pBus = NULL;
+
+    sd_bus_open_system(&pBus);
+
+    ret = sd_bus_message_new_method_call(pBus,
+                                         &m,
+                                         SYSTEMD_SERVICE_NAME,                              /* service to contact */
+                                         SYSTEMD_OBJECT_PATH_NAME,                          /* object path */
+                                         SYSTEMD_MANAGER_INTERFACE_NAME,                    /* interface name */
+                                         SYSTEMD_DAEMON_RELOAD_METHOD                       /* method name */
+                                        );
+
+    if (ret < 0)
+    {
+        std::cerr << "Failed to issue deamon-reload call" << std::endl;
+        goto finish;
+    }
+
+    /* Reloading the daemon may take long, hence set a longer timeout here */
+    ret = sd_bus_call(pBus, m, DAEMON_RELOAD_TIMEOUT_SEC, &error, NULL);
+
+    if (ret < 0)
+    {
+        std::cerr << "Failed to run systemd deamon-reload: " << error.message << std::endl;
+        goto finish;
+    }
+    std::cout << "Reload System manager Configuration..." << std::endl;
+
+finish:
+    sd_bus_error_free(&error);
+    sd_bus_unref(pBus);
+
     return ret;
 }
 
@@ -167,9 +215,10 @@ int main(int argc, char *argv[])
     SystemdManager s;
 
     if (argc <= 1) {
-        printf("Usage: systemd-manager <service name>\n");
+        std::cout << "Usage: systemd-manager <service name>" << std::endl;
         return 1;
     }
+    s.daemon_reload();
 
     if ( s.isActive(argv[1]) )
     {
